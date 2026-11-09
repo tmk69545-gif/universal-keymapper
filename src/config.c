@@ -199,9 +199,26 @@ static void apply_key_setting(key_config_t *kc, const char *key, const char *val
 int config_load(const char *path, app_config_t *cfg) {
     FILE *fp = fopen(path, "r");
     if (!fp) {
-        config_set_defaults(cfg);
-        config_save(path, cfg);
-        return 0;
+        config_generate_for_detected_device(path);
+        fp = fopen(path, "r");
+        if (!fp) {
+            config_set_defaults(cfg);
+            return 0;
+        }
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (sz < 10) {
+        fclose(fp);
+        config_generate_for_detected_device(path);
+        fp = fopen(path, "r");
+        if (!fp) {
+            config_set_defaults(cfg);
+            return 0;
+        }
     }
 
     config_set_defaults(cfg);

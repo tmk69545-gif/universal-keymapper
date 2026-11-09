@@ -94,25 +94,79 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
     int client_fd = accept4(server_fd, (struct sockaddr *)&client_addr, &client_len, SOCK_CLOEXEC);
     if (client_fd < 0) return;
 
-    char req[4096];
-    int n = read(client_fd, req, sizeof(req) - 1);
-    if (n <= 0) {
+    // Set 3s socket read/write timeout so client cannot hang daemon
+    struct timeval tv;
+    tv.tv_sec = 3;
+    tv.tv_usec = 0;
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    int max_buf = 65536;
+    char *req = malloc(max_buf);
+    if (!req) {
         close(client_fd);
         return;
     }
-    req[n] = '\0';
+
+    int total_read = 0;
+    char *hdr_end = NULL;
+
+    // Read until headers \r\n\r\n are completely received
+    while (total_read < max_buf - 1) {
+        int r = read(client_fd, req + total_read, max_buf - 1 - total_read);
+        if (r <= 0) break;
+        total_read += r;
+        req[total_read] = '\0';
+        hdr_end = strstr(req, "\r\n\r\n");
+        if (hdr_end) break;
+    }
+
+    if (!hdr_end) {
+        free(req);
+        close(client_fd);
+        return;
+    }
+
+    int header_len = (int)(hdr_end - req) + 4;
+    int content_length = 0;
+    char *cl = strcasestr(req, "Content-Length:");
+    if (cl) {
+        content_length = atoi(cl + 15);
+    }
+
+    // Read remaining body bytes if Content-Length specified
+    if (content_length > 0) {
+        int target = header_len + content_length;
+        if (target >= max_buf) {
+            send_response(client_fd, 413, "Payload Too Large", "text/plain", "Payload Too Large\n", 18);
+            free(req);
+            close(client_fd);
+            return;
+        }
+        while (total_read < target) {
+            int r = read(client_fd, req + total_read, target - total_read);
+            if (r <= 0) break;
+            total_read += r;
+            req[total_read] = '\0';
+        }
+    }
+    req[total_read] = '\0';
 
     char method[16], uri[256];
     if (sscanf(req, "%15s %255s", method, uri) != 2) {
+        free(req);
         close(client_fd);
         return;
     }
 
     if (strcmp(method, "OPTIONS") == 0) {
         send_response(client_fd, 204, "No Content", "text/plain", "", 0);
+        free(req);
         close(client_fd);
         return;
     }
+
+    char *body = hdr_end + 4;
 
     // API: Status
     if (strcmp(uri, "/api/status") == 0) {
@@ -120,6 +174,7 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
         int jlen = snprintf(json, sizeof(json), "{\"running\":true,\"pid\":%d,\"port\":%d,\"keys_count\":%d}\n",
             getpid(), g_config.http_port, g_config.key_count);
         send_response(client_fd, 200, "OK", "application/json", json, jlen);
+        free(req);
         close(client_fd);
         return;
     }
@@ -129,6 +184,7 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
         char json[512];
         event_to_json(json, sizeof(json));
         send_response(client_fd, 200, "OK", "application/json", json, strlen(json));
+        free(req);
         close(client_fd);
         return;
     }
@@ -151,6 +207,7 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
             send_response(client_fd, 200, "OK", "application/json", json, pos);
             free(json);
         }
+        free(req);
         close(client_fd);
         return;
     }
@@ -175,6 +232,7 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
         } else {
             send_response(client_fd, 200, "OK", "text/plain", "No logs recorded yet.\n", 22);
         }
+        free(req);
         close(client_fd);
         return;
     }
@@ -185,6 +243,7 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
         FILE *fp = fopen(log_path, "w");
         if (fp) fclose(fp);
         send_response(client_fd, 200, "OK", "application/json", "{\"cleared\":true}\n", 17);
+        free(req);
         close(client_fd);
         return;
     }
@@ -192,25 +251,41 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
     // API: Config (GET)
     if (strcmp(uri, "/api/config") == 0 && strcmp(method, "GET") == 0) {
         serve_file(client_fd, config_path, "text/plain");
+        free(req);
         close(client_fd);
         return;
     }
 
-    // API: Config (POST)
+    // API: Config (POST) - with atomic write and empty body protection
     if (strcmp(uri, "/api/config") == 0 && strcmp(method, "POST") == 0) {
-        char *body = strstr(req, "\r\n\r\n");
-        if (body) {
-            body += 4;
-            FILE *fp = fopen(config_path, "w");
-            if (fp) {
-                fputs(body, fp);
-                fclose(fp);
+        if (!body || strlen(body) < 10) {
+            send_response(client_fd, 400, "Bad Request", "application/json", "{\"error\":\"empty or truncated config body\"}\n", 43);
+            free(req);
+            close(client_fd);
+            return;
+        }
+
+        char tmp_path[512];
+        snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", config_path);
+        FILE *fp = fopen(tmp_path, "w");
+        if (fp) {
+            size_t body_len = strlen(body);
+            size_t written = fwrite(body, 1, body_len, fp);
+            fclose(fp);
+            if (written == body_len) {
+                rename(tmp_path, config_path);
                 g_reload_requested = 1;
+                printf("[CONFIG] Configuration updated successfully (%zu bytes). Reload triggered.\n", written);
+                fflush(stdout);
                 send_response(client_fd, 200, "OK", "application/json", "{\"saved\":true,\"reloaded\":true}\n", 30);
             } else {
-                send_response(client_fd, 500, "Error", "application/json", "{\"error\":\"write failed\"}\n", 24);
+                unlink(tmp_path);
+                send_response(client_fd, 500, "Error", "application/json", "{\"error\":\"write incomplete\"}\n", 28);
             }
+        } else {
+            send_response(client_fd, 500, "Error", "application/json", "{\"error\":\"write failed\"}\n", 24);
         }
+        free(req);
         close(client_fd);
         return;
     }
@@ -218,21 +293,33 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
     // API: Reload
     if (strcmp(uri, "/api/reload") == 0) {
         g_reload_requested = 1;
+        printf("[CONFIG] Manual reload requested via API.\n");
+        fflush(stdout);
         send_response(client_fd, 200, "OK", "application/json", "{\"reloaded\":true}\n", 18);
+        free(req);
         close(client_fd);
         return;
     }
 
     // API: Test Action
     if (strcmp(uri, "/api/test-action") == 0 && strcmp(method, "POST") == 0) {
-        char *body = strstr(req, "\r\n\r\n");
-        if (body) {
-            body += 4;
-            actions_execute(body);
+        char *act = body;
+        while (*act == ' ' || *act == '\t' || *act == '\r' || *act == '\n') act++;
+        char *end = act + strlen(act) - 1;
+        while (end >= act && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) {
+            *end = '\0';
+            end--;
+        }
+
+        if (*act) {
+            printf("[API TEST] Triggering action: '%s'\n", act);
+            fflush(stdout);
+            actions_execute(act);
             send_response(client_fd, 200, "OK", "application/json", "{\"tested\":true}\n", 16);
         } else {
-            send_response(client_fd, 400, "Bad Request", "application/json", "{\"error\":\"no body\"}\n", 21);
+            send_response(client_fd, 400, "Bad Request", "application/json", "{\"error\":\"no action specified\"}\n", 32);
         }
+        free(req);
         close(client_fd);
         return;
     }
@@ -254,5 +341,6 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
         serve_file(client_fd, filepath, mime);
     }
 
+    free(req);
     close(client_fd);
 }

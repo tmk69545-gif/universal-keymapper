@@ -9,15 +9,26 @@
 #include <time.h>
 
 static void run_forked_cmd(const char *cmd) {
+    if (!cmd || !*cmd) return;
+    printf("[EXEC] %s\n", cmd);
+    fflush(stdout);
+
     pid_t pid = fork();
     if (pid == 0) {
         // Child process
-        // Redirect stdout/stderr to /dev/null
-        int devnull = open("/dev/null", O_WRONLY);
-        if (devnull >= 0) {
-            dup2(devnull, STDOUT_FILENO);
-            dup2(devnull, STDERR_FILENO);
-            close(devnull);
+        // Redirect stdout/stderr to keyactiond.log so execution errors are captured
+        int log_fd = open("/data/adb/modules/essential_keymapper/keyactiond.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
+        if (log_fd >= 0) {
+            dup2(log_fd, STDOUT_FILENO);
+            dup2(log_fd, STDERR_FILENO);
+            close(log_fd);
+        } else {
+            int devnull = open("/dev/null", O_WRONLY);
+            if (devnull >= 0) {
+                dup2(devnull, STDOUT_FILENO);
+                dup2(devnull, STDERR_FILENO);
+                close(devnull);
+            }
         }
         execl("/system/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
@@ -42,10 +53,20 @@ int actions_is_screen_on(void) {
 
 void actions_toggle_flashlight(void) {
     run_forked_cmd(
-        "cmd statusbar click-tile flashlight 2>/dev/null || "
-        "if [ -f /sys/class/leds/flashlight/brightness ]; then "
-        "  cur=$(cat /sys/class/leds/flashlight/brightness); "
+        "if [ -f /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch ]; then "
+        "  if grep -q '0 0 0 1' /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch 2>/dev/null; then "
+        "    echo '0 0 0 0' > /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch; "
+        "  else "
+        "    echo '0 0 0 1' > /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch; "
+        "  fi; "
+        "elif [ -f /sys/class/leds/flashlight/brightness ]; then "
+        "  cur=$(cat /sys/class/leds/flashlight/brightness 2>/dev/null || echo 0); "
         "  [ \"$cur\" -eq 0 ] && echo 255 > /sys/class/leds/flashlight/brightness || echo 0 > /sys/class/leds/flashlight/brightness; "
+        "elif [ -f /sys/class/leds/torch-light/brightness ]; then "
+        "  cur=$(cat /sys/class/leds/torch-light/brightness 2>/dev/null || echo 0); "
+        "  [ \"$cur\" -eq 0 ] && echo 255 > /sys/class/leds/torch-light/brightness || echo 0 > /sys/class/leds/torch-light/brightness; "
+        "else "
+        "  cmd statusbar click-tile flashlight 2>/dev/null; "
         "fi"
     );
 }
@@ -96,7 +117,11 @@ void actions_screen_on(void) {
 }
 
 void actions_camera(void) {
-    run_forked_cmd("am start -a android.media.action.STILL_IMAGE_CAMERA 2>/dev/null || input keyevent 27");
+    run_forked_cmd(
+        "am start -a android.media.action.STILL_IMAGE_CAMERA_SECURE 2>/dev/null || "
+        "am start -a android.media.action.STILL_IMAGE_CAMERA 2>/dev/null || "
+        "input keyevent 27"
+    );
 }
 
 void actions_notifications(void) {
@@ -123,40 +148,57 @@ void actions_run_shell(const char *cmd) {
 }
 
 void actions_execute(const char *action_str) {
-    if (!action_str || !*action_str) return;
-    if (strcasecmp(action_str, "default") == 0 || strcasecmp(action_str, "none") == 0) {
+    if (!action_str) return;
+    while (*action_str == ' ' || *action_str == '\t' || *action_str == '\r' || *action_str == '\n') {
+        action_str++;
+    }
+    if (!*action_str) return;
+
+    char act[MAX_ACTION_LEN];
+    strncpy(act, action_str, sizeof(act) - 1);
+    act[sizeof(act) - 1] = '\0';
+    char *end = act + strlen(act) - 1;
+    while (end >= act && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) {
+        *end = '\0';
+        end--;
+    }
+
+    if (strcasecmp(act, "default") == 0 || strcasecmp(act, "none") == 0) {
         return;
     }
 
-    if (strcasecmp(action_str, "flashlight") == 0 || strcasecmp(action_str, "torch") == 0) {
+    if (strcasecmp(act, "flashlight") == 0 || strcasecmp(act, "torch") == 0) {
         actions_toggle_flashlight();
-    } else if (strcasecmp(action_str, "screenshot") == 0) {
+    } else if (strcasecmp(act, "screenshot") == 0) {
         actions_screenshot();
-    } else if (strcasecmp(action_str, "play_pause") == 0) {
+    } else if (strcasecmp(act, "play_pause") == 0) {
         actions_play_pause();
-    } else if (strcasecmp(action_str, "next_track") == 0) {
+    } else if (strcasecmp(act, "next_track") == 0) {
         actions_next_track();
-    } else if (strcasecmp(action_str, "prev_track") == 0) {
+    } else if (strcasecmp(act, "prev_track") == 0) {
         actions_prev_track();
-    } else if (strcasecmp(action_str, "volume_up") == 0) {
+    } else if (strcasecmp(act, "volume_up") == 0) {
         actions_volume_up();
-    } else if (strcasecmp(action_str, "volume_down") == 0) {
+    } else if (strcasecmp(act, "volume_down") == 0) {
         actions_volume_down();
-    } else if (strcasecmp(action_str, "mute_toggle") == 0) {
+    } else if (strcasecmp(act, "mute_toggle") == 0) {
         actions_mute_toggle();
-    } else if (strcasecmp(action_str, "screen_off") == 0 || strcasecmp(action_str, "lock") == 0) {
+    } else if (strcasecmp(act, "screen_off") == 0 || strcasecmp(act, "lock") == 0) {
         actions_screen_off();
-    } else if (strcasecmp(action_str, "screen_on") == 0 || strcasecmp(action_str, "wake") == 0) {
+    } else if (strcasecmp(act, "screen_on") == 0 || strcasecmp(act, "wake") == 0) {
         actions_screen_on();
-    } else if (strcasecmp(action_str, "camera") == 0) {
+    } else if (strcasecmp(act, "camera") == 0) {
         actions_camera();
-    } else if (strcasecmp(action_str, "notifications") == 0) {
+    } else if (strcasecmp(act, "notifications") == 0) {
         actions_notifications();
-    } else if (strcasecmp(action_str, "quick_settings") == 0) {
+    } else if (strcasecmp(act, "quick_settings") == 0) {
         actions_quick_settings();
-    } else if (strcasecmp(action_str, "kill_app") == 0) {
+    } else if (strcasecmp(act, "kill_app") == 0) {
         actions_kill_foreground_app();
-    } else if (strncasecmp(action_str, "shell ", 6) == 0) {
-        actions_run_shell(action_str + 6);
+    } else if (strncasecmp(act, "shell ", 6) == 0) {
+        actions_run_shell(act + 6);
+    } else {
+        printf("[WARN] Unknown action: '%s'\n", act);
+        fflush(stdout);
     }
 }

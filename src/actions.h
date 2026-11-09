@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define MAX_ACTION_LEN 256
+
 void actions_init(void);
 int actions_is_screen_on(void);
 void actions_execute(const char *action_str);

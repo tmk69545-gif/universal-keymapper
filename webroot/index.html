@@ -628,23 +628,46 @@
       },
       async getConfig() {
         const res = await this.request('/api/config');
-        if (res && res.ok) return await res.text();
+        if (res && res.ok) {
+          const t = await res.text();
+          if (t && t.trim().length > 0) return t;
+        }
         if (typeof ksu !== 'undefined' && typeof ksu.exec === 'function') {
           try {
             let out = await ksu.exec("cat /data/adb/modules/essential_keymapper/keymapper.conf 2>/dev/null");
             if (typeof out === 'object' && out !== null) out = out.stdout || '';
-            return out || '';
+            if (out && out.trim().length > 0) return out;
           } catch(e) {}
         }
         return '';
       },
       async saveConfig(text) {
-        const res = await this.request('/api/config', { method: 'POST', body: text });
-        if (res && res.ok) return true;
+        if (!text || text.trim().length === 0) {
+          showToast("Error: Config text is empty");
+          return false;
+        }
+        try {
+          const res = await this.request('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: text
+          });
+          if (res && res.ok) {
+            const data = await res.json().catch(() => null);
+            if (data && data.saved) return true;
+          }
+        } catch (e) {
+          console.error("HTTP saveConfig failed:", e);
+        }
+
         if (typeof ksu !== 'undefined' && typeof ksu.exec === 'function') {
-          const b64 = btoa(unescape(encodeURIComponent(text)));
-          await ksu.exec(`echo "${b64}" | base64 -d > /data/adb/modules/essential_keymapper/keymapper.conf && killall -USR1 keyactiond 2>/dev/null || true`);
-          return true;
+          try {
+            const b64 = btoa(unescape(encodeURIComponent(text)));
+            await ksu.exec(`echo "${b64}" | base64 -d > /data/adb/modules/essential_keymapper/keymapper.conf && killall -USR1 keyactiond 2>/dev/null || true`);
+            return true;
+          } catch (e2) {
+            console.error("KSU saveConfig failed:", e2);
+          }
         }
         return false;
       },
@@ -691,7 +714,13 @@
           return;
         }
         showToast("Testing: " + action);
-        await this.request('/api/test-action', { method: 'POST', body: action });
+        try {
+          await this.request('/api/test-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: action.trim()
+          });
+        } catch(e) {}
       }
     };
 
@@ -874,11 +903,11 @@
             </div>
             <div class="card-body">
               <div class="slots-grid">
-                ${renderSlot('Single press', 's-single', sec.single_press || 'default')}
-                ${renderSlot('Double press', 's-double', sec.double_press || 'none')}
-                ${renderSlot('Long press (hold)', 's-long', sec.long_press || 'none')}
-                ${renderSlot('Screen-off single', 's-off-single', sec.screen_off_single || 'default')}
-                ${renderSlot('Screen-off hold (music)', 's-off-long', sec.screen_off_long || 'none')}
+                ${renderSlot('Single press', 's-single', sec.single_press || (k.keycode === 250 ? 'flashlight' : 'default'))}
+                ${renderSlot('Double press', 's-double', sec.double_press || (k.keycode === 250 ? 'screenshot' : 'none'))}
+                ${renderSlot('Long press (hold)', 's-long', sec.long_press || (k.keycode === 250 ? 'camera' : 'none'))}
+                ${renderSlot('Screen-off single', 's-off-single', sec.screen_off_single || (k.keycode === 250 ? 'flashlight' : 'default'))}
+                ${renderSlot('Screen-off hold (music)', 's-off-long', sec.screen_off_long || (k.keycode === 114 ? 'prev_track' : (k.keycode === 115 ? 'next_track' : 'none')))}
                 ${renderSlot('Triple press', 's-triple', sec.triple_press || 'none')}
               </div>
             </div>
