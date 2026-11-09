@@ -1,6 +1,7 @@
 #include "http_server.h"
 #include "device.h"
 #include "config.h"
+#include "actions.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -208,6 +209,20 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
     if (strcmp(uri, "/api/reload") == 0) {
         g_reload_requested = 1;
         send_response(client_fd, 200, "OK", "application/json", "{\"reloaded\":true}\n", 18);
+        close(client_fd);
+        return;
+    }
+
+    // API: Test Action
+    if (strcmp(uri, "/api/test-action") == 0 && strcmp(method, "POST") == 0) {
+        char *body = strstr(req, "\r\n\r\n");
+        if (body) {
+            body += 4;
+            actions_execute(body);
+            send_response(client_fd, 200, "OK", "application/json", "{\"tested\":true}\n", 16);
+        } else {
+            send_response(client_fd, 400, "Bad Request", "application/json", "{\"error\":\"no body\"}\n", 21);
+        }
         close(client_fd);
         return;
     }
