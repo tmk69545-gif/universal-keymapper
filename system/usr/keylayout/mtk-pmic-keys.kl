@@ -1,0 +1,3 @@
+# Nothing CMF Phone (Galaga) mtk-pmic-keys layout
+key 115   VOLUME_UP         WAKE
+key 116   POWER             WAKE

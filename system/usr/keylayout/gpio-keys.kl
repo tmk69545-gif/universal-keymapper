@@ -1,0 +1,3 @@
+# Nothing CMF Phone (Galaga) gpio-keys layout
+key 114   VOLUME_DOWN       WAKE
+key 250   ASSIST            WAKE

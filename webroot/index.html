@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Universal KeyMapper WebUI</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card-bg: #181b22;
+      --card-border: #262a36;
+      --text: #f0f2f5;
+      --text-muted: #8b949e;
+      --accent: #ff3b30;
+      --accent-glow: rgba(255, 59, 48, 0.25);
+      --success: #00e676;
+      --warning: #ffab00;
+      --cyan: #00e5ff;
+      --font-mono: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      padding-bottom: 90px;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      background: rgba(24, 27, 34, 0.95);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .title-group h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-running { background: rgba(0, 230, 118, 0.15); color: var(--success); border: 1px solid var(--success); }
+    .badge-stopped { background: rgba(255, 59, 48, 0.15); color: var(--accent); border: 1px solid var(--accent); }
+
+    .header-actions { display: flex; gap: 8px; }
+    button {
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:active { transform: scale(0.97); }
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      box-shadow: 0 4px 14px var(--accent-glow);
+    }
+    button.cyan { background: var(--cyan); color: #000; border: none; }
+
+    /* Navigation Bar */
+    nav {
+      display: flex;
+      background: var(--card-bg);
+      padding: 6px;
+      margin: 12px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      gap: 6px;
+    }
+    nav button {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 8px 4px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      border-radius: 6px;
+    }
+    nav button.active {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    .container { padding: 0 16px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #fff;
+    }
+    .card-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Key Mapping Grid */
+    .mapping-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .field label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    select, input[type="text"] {
+      background: #111318;
+      color: var(--text);
+      border: 1px solid var(--card-border);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      outline: none;
+      width: 100%;
+    }
+    select:focus, input[type="text"]:focus {
+      border-color: var(--cyan);
+    }
+
+    /* Logs View */
+    .log-box {
+      background: #090a0d;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: #a9b7c6;
+      height: 380px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: text;
+    }
+    .log-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .log-actions { display: flex; gap: 8px; }
+
+    /* Interactive Key Tester */
+    .tester-area {
+      min-height: 200px;
+      border: 2px dashed var(--card-border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+      gap: 12px;
+    }
+    .key-badge-active {
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: var(--cyan);
+      background: rgba(0, 229, 255, 0.1);
+      padding: 12px 24px;
+      border-radius: 8px;
+      border: 1px solid var(--cyan);
+    }
+
+    /* Bottom Floating Action Bar */
+    .bottom-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(24, 27, 34, 0.95);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--card-border);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 99;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 75px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #2b303c;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      display: none;
+      z-index: 200;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="title-group">
+      <h1>Universal KeyMapper</h1>
+      <span id="daemon-badge" class="badge badge-running">Running</span>
+    </div>
+    <div class="header-actions">
+      <button onclick="reloadDaemon()" title="Reload Config">🔄 Reload</button>
+      <button onclick="restartDaemon()" title="Restart Daemon">⚡ Restart</button>
+    </div>
+  </header>
+
+  <nav>
+    <button class="active" onclick="switchTab('keys')">🎛 Keys & Actions</button>
+    <button onclick="switchTab('logs')">📜 Live Logs</button>
+    <button onclick="switchTab('test')">🕹 Key Tester</button>
+    <button onclick="switchTab('config')">⚙️ Raw Config</button>
+  </nav>
+
+  <div class="container">
+
+    <!-- Tab 1: Keys & Actions -->
+    <div id="tab-keys" class="tab-content active">
+      <div id="keys-container">
+        <div style="text-align:center; padding: 30px; color: var(--text-muted);">
+          Scanning hardware keys on device...
+        </div>
+      </div>
+
+      <!-- Combos Card -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Hardware Key Combinations</div>
+            <div class="card-subtitle">Pressed simultaneously</div>
+          </div>
+        </div>
+        <div class="mapping-grid">
+          <div class="field">
+            <label>Vol+ & Vol- Together</label>
+            <select id="combo_volup_voldown"></select>
+          </div>
+          <div class="field">
+            <label>Essential + Vol-</label>
+            <select id="combo_essential_voldown"></select>
+          </div>
+          <div class="field">
+            <label>Essential + Vol+</label>
+            <select id="combo_essential_volup"></select>
+          </div>
+          <div class="field">
+            <label>Power + Vol-</label>
+            <select id="combo_power_voldown"></select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Logs (The requested log option!) -->
+    <div id="tab-logs" class="tab-content">
+      <div class="card">
+        <div class="log-toolbar">
+          <div>
+            <span style="font-weight: 600; font-size: 0.9rem;">Daemon Activity Log</span>
+            <span id="log-status" style="font-size:0.75rem; color:var(--text-muted); margin-left: 8px;">Auto-refresh: 2s</span>
+          </div>
+          <div class="log-actions">
+            <button onclick="fetchLogs()">🔄 Refresh</button>
+            <button onclick="clearLogs()">🗑 Clear</button>
+            <button onclick="copyLogs()">📋 Copy</button>
+          </div>
+        </div>
+        <div id="log-box" class="log-box">Connecting to log stream...</div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Interactive Key Tester -->
+    <div id="tab-test" class="tab-content">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Live Hardware Button Test</div>
+            <div class="card-subtitle">Press any physical button on your phone</div>
+          </div>
+        </div>
+        <div class="tester-area">
+          <div id="test-key-display" class="key-badge-active">Ready for keypress</div>
+          <p id="test-key-sub" style="font-size: 0.85rem; color: var(--text-muted);">Press Volume, Power, or Essential Button</p>
+          <div id="test-key-details" style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--cyan);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: Raw Config -->
+    <div id="tab-config" class="tab-content">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">keymapper.conf (Direct Editor)</div>
+          <button onclick="saveRawConfig()" class="primary">Save Raw</button>
+        </div>
+        <textarea id="raw-config-text" style="width:100%; height:350px; background:#090a0d; color:#a9b7c6; font-family:var(--font-mono); font-size:0.78rem; border:1px solid var(--card-border); border-radius:8px; padding:12px; outline:none; resize:none;"></textarea>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="bottom-bar">
+    <div style="font-size: 0.8rem; color: var(--text-muted);">
+      <span id="detected-count">0</span> keys detected
+    </div>
+    <button class="primary" onclick="saveAllMappings()">💾 Save & Apply Changes</button>
+  </div>
+
+  <div id="toast" class="toast">Changes saved & reloaded!</div>
+
+  <script>
+    const ACTION_OPTIONS = [
+      { id: "default", label: "Default (System Behavior)" },
+      { id: "none", label: "None (Do Nothing)" },
+      { id: "flashlight", label: "🔦 Flashlight Toggle" },
+      { id: "screenshot", label: "📸 Screenshot" },
+      { id: "play_pause", label: "⏯ Play / Pause Media" },
+      { id: "next_track", label: "⏭ Next Track" },
+      { id: "prev_track", label: "⏮ Previous Track" },
+      { id: "volume_up", label: "🔊 Volume Up" },
+      { id: "volume_down", label: "🔉 Volume Down" },
+      { id: "mute_toggle", label: "🔕 Mute / Silent Toggle" },
+      { id: "screen_off", label: "🔒 Turn Screen Off / Lock" },
+      { id: "screen_on", label: "🔆 Turn Screen On / Wake" },
+      { id: "camera", label: "📷 Camera App" },
+      { id: "notifications", label: "📬 Expand Notifications" },
+      { id: "quick_settings", label: "⚙️ Expand Quick Settings" },
+      { id: "kill_app", label: "❌ Kill Active App" }
+    ];
+
+    let detectedKeys = [];
+    let currentConfigText = "";
+    let logInterval = null;
+
+    // KSU / Local API Bridge
+    const Bridge = {
+      isKsu: typeof ksu !== 'undefined' && typeof ksu.exec === 'function',
+      async exec(cmd) {
+        if (this.isKsu) {
+          const res = await ksu.exec(cmd);
+          return res.stdout || "";
+        } else {
+          // Fallback to local HTTP server
+          try {
+            const resp = await fetch('/api/exec', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cmd })
+            });
+            const data = await resp.json();
+            return data.stdout || "";
+          } catch(e) {
+            return "";
+          }
+        }
+      },
+      async getDetectedKeys() {
+        if (this.isKsu) {
+          const out = await this.exec("keyactiond --detect-keys-json 2>/dev/null || keymapper detect --json 2>/dev/null");
+          try { return JSON.parse(out); } catch(e) { return []; }
+        } else {
+          const resp = await fetch('/api/keys');
+          return await resp.json();
+        }
+      },
+      async getConfig() {
+        if (this.isKsu) {
+          return await this.exec("cat /data/adb/modules/essential_keymapper/keymapper.conf 2>/dev/null");
+        } else {
+          const resp = await fetch('/api/config');
+          return await resp.text();
+        }
+      },
+      async saveConfig(text) {
+        if (this.isKsu) {
+          const b64 = btoa(unescape(encodeURIComponent(text)));
+          await this.exec(`echo "${b64}" | base64 -d > /data/adb/modules/essential_keymapper/keymapper.conf && killall -USR1 keyactiond 2>/dev/null || true`);
+          return true;
+        } else {
+          await fetch('/api/config', { method: 'POST', body: text });
+          return true;
+        }
+      },
+      async getLogs() {
+        if (this.isKsu) {
+          return await this.exec("tail -n 60 /data/adb/modules/essential_keymapper/keyactiond.log 2>/dev/null");
+        } else {
+          const resp = await fetch('/api/logs');
+          return await resp.text();
+        }
+      },
+      async clearLogs() {
+        if (this.isKsu) {
+          await this.exec("> /data/adb/modules/essential_keymapper/keyactiond.log 2>/dev/null");
+        } else {
+          await fetch('/api/logs/clear', { method: 'POST' });
+        }
+      },
+      async reloadDaemon() {
+        if (this.isKsu) {
+          await this.exec("killall -USR1 keyactiond 2>/dev/null || keymapper reload 2>/dev/null");
+        } else {
+          await fetch('/api/reload', { method: 'POST' });
+        }
+      },
+      async restartDaemon() {
+        if (this.isKsu) {
+          await this.exec("keymapper restart 2>/dev/null");
+        } else {
+          await fetch('/api/restart', { method: 'POST' });
+        }
+      }
+    };
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 2200);
+    }
+
+    function switchTab(name) {
+      document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + name).classList.add('active');
+
+      if (name === 'logs') {
+        fetchLogs();
+        if (!logInterval) logInterval = setInterval(fetchLogs, 2000);
+      } else {
+        if (logInterval) { clearInterval(logInterval); logInterval = null; }
+      }
+    }
+
+    function renderOptions(selected) {
+      return ACTION_OPTIONS.map(opt =>
+        `<option value="${opt.id}" ${opt.id === selected ? 'selected' : ''}>${opt.label}</option>`
+      ).join('');
+    }
+
+    function parseConfigIni(text) {
+      const map = {};
+      let currentSection = 'global';
+      const lines = text.split('\n');
+      for (let line of lines) {
+        line = line.trim();
+        if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+        if (line.startsWith('[') && line.endsWith(']')) {
+          currentSection = line.slice(1, -1).trim();
+          if (!map[currentSection]) map[currentSection] = {};
+          continue;
+        }
+        const eq = line.indexOf('=');
+        if (eq !== -1) {
+          const k = line.slice(0, eq).trim();
+          const v = line.slice(eq + 1).trim();
+          if (!map[currentSection]) map[currentSection] = {};
+          map[currentSection][k] = v;
+        }
+      }
+      return map;
+    }
+
+    async function initApp() {
+      try {
+        detectedKeys = await Bridge.getDetectedKeys();
+        document.getElementById('detected-count').innerText = detectedKeys.length;
+
+        currentConfigText = await Bridge.getConfig();
+        document.getElementById('raw-config-text').value = currentConfigText;
+        const ini = parseConfigIni(currentConfigText);
+
+        const container = document.getElementById('keys-container');
+        if (!detectedKeys.length) {
+          container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted)">No keys found. Ensure daemon has root access.</div>';
+          return;
+        }
+
+        container.innerHTML = detectedKeys.map(key => {
+          const sec = ini['key_' + key.keycode] || ini['key_' + key.name.toLowerCase().replace('key_', '')] || {};
+          return `
+            <div class="card" data-keycode="${key.keycode}">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">${key.label}</div>
+                  <div class="card-subtitle">Keycode ${key.keycode} (${key.name}) • ${key.device}</div>
+                </div>
+              </div>
+              <div class="mapping-grid">
+                <div class="field">
+                  <label>Single Press</label>
+                  <select class="sel-single">${renderOptions(sec.single_press || 'default')}</select>
+                </div>
+                <div class="field">
+                  <label>Double Press</label>
+                  <select class="sel-double">${renderOptions(sec.double_press || 'none')}</select>
+                </div>
+                <div class="field">
+                  <label>Long Press (Hold)</label>
+                  <select class="sel-long">${renderOptions(sec.long_press || 'none')}</select>
+                </div>
+                <div class="field">
+                  <label>Screen-Off Single</label>
+                  <select class="sel-off-single">${renderOptions(sec.screen_off_single || 'default')}</select>
+                </div>
+                <div class="field">
+                  <label>Screen-Off Long (Music/Torch)</label>
+                  <select class="sel-off-long">${renderOptions(sec.screen_off_long || 'none')}</select>
+                </div>
+                <div class="field">
+                  <label>Triple Press</label>
+                  <select class="sel-triple">${renderOptions(sec.triple_press || 'none')}</select>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        // Populate Combos
+        const combos = ini['combos'] || {};
+        document.getElementById('combo_volup_voldown').innerHTML = renderOptions(combos.volup_and_voldown || 'screenshot');
+        document.getElementById('combo_essential_voldown').innerHTML = renderOptions(combos.essential_and_voldown || 'notifications');
+        document.getElementById('combo_essential_volup').innerHTML = renderOptions(combos.essential_and_volup || 'quick_settings');
+        document.getElementById('combo_power_voldown').innerHTML = renderOptions(combos.power_and_voldown || 'default');
+
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function saveAllMappings() {
+      let ini = parseConfigIni(currentConfigText);
+      if (!ini.global) {
+        ini.global = { double_click_ms: 300, triple_click_ms: 450, long_press_ms: 480, log_level: 1, http_port: 8321 };
+      }
+
+      document.querySelectorAll('#keys-container .card').forEach(card => {
+        const code = card.getAttribute('data-keycode');
+        const secName = 'key_' + code;
+        if (!ini[secName]) ini[secName] = {};
+        ini[secName].single_press = card.querySelector('.sel-single').value;
+        ini[secName].double_press = card.querySelector('.sel-double').value;
+        ini[secName].triple_press = card.querySelector('.sel-triple').value;
+        ini[secName].long_press = card.querySelector('.sel-long').value;
+        ini[secName].screen_off_single = card.querySelector('.sel-off-single').value;
+        ini[secName].screen_off_long = card.querySelector('.sel-off-long').value;
+      });
+
+      if (!ini.combos) ini.combos = {};
+      ini.combos.volup_and_voldown = document.getElementById('combo_volup_voldown').value;
+      ini.combos.essential_and_voldown = document.getElementById('combo_essential_voldown').value;
+      ini.combos.essential_and_volup = document.getElementById('combo_essential_volup').value;
+      ini.combos.power_and_voldown = document.getElementById('combo_power_voldown').value;
+
+      // Serialize INI
+      let out = "# Universal KeyMapper Configuration\n\n[global]\n";
+      for (let k in ini.global) out += `${k} = ${ini.global[k]}\n`;
+      out += "\n";
+
+      for (let sec in ini) {
+        if (sec === 'global' || sec === 'combos') continue;
+        out += `[${sec}]\n`;
+        for (let k in ini[sec]) out += `${k} = ${ini[sec][k]}\n`;
+        out += "\n";
+      }
+
+      out += "[combos]\n";
+      for (let k in ini.combos) out += `${k} = ${ini.combos[k]}\n`;
+
+      currentConfigText = out;
+      document.getElementById('raw-config-text').value = out;
+      await Bridge.saveConfig(out);
+      showToast("Settings saved & daemon reloaded!");
+    }
+
+    async function fetchLogs() {
+      const logs = await Bridge.getLogs();
+      const box = document.getElementById('log-box');
+      box.textContent = logs || "No logs available.";
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function clearLogs() {
+      await Bridge.clearLogs();
+      document.getElementById('log-box').textContent = "";
+      showToast("Logs cleared!");
+    }
+
+    function copyLogs() {
+      const text = document.getElementById('log-box').textContent;
+      navigator.clipboard.writeText(text);
+      showToast("Logs copied to clipboard!");
+    }
+
+    async function saveRawConfig() {
+      const text = document.getElementById('raw-config-text').value;
+      await Bridge.saveConfig(text);
+      showToast("Raw config saved & reloaded!");
+    }
+
+    async function reloadDaemon() {
+      await Bridge.reloadDaemon();
+      showToast("Daemon reloaded!");
+    }
+
+    async function restartDaemon() {
+      await Bridge.restartDaemon();
+      showToast("Daemon restarted!");
+    }
+
+    // Tester setup via logs listener
+    let testPolling = null;
+    window.addEventListener('load', () => {
+      initApp();
+      testPolling = setInterval(async () => {
+        if (document.getElementById('tab-test').classList.contains('active')) {
+          const logs = await Bridge.getLogs();
+          const match = logs.match(/\[(ACTION|KEY EVENT)\].*$/m);
+          if (match) {
+            document.getElementById('test-key-display').innerText = match[0];
+          }
+        }
+      }, 1000);
+    });
+  </script>
+</body>
+</html>

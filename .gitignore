@@ -1,0 +1,5 @@
+src/*.o
+src/keyactiond
+*.log
+*.pid
+.DS_Store
