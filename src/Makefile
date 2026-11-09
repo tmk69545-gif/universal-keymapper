@@ -5,7 +5,7 @@ STRIP := $(NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip
 CFLAGS := -O3 -Wall -Wextra -static -flto -D_GNU_SOURCE
 LDFLAGS := -static -flto
 
-SRCS := main.c config.c actions.c device.c http_server.c
+SRCS := main.c config.c actions.c device.c http_server.c events.c
 OBJS := $(SRCS:.c=.o)
 TARGET := keyactiond
 

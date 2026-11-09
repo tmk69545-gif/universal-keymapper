@@ -2,6 +2,7 @@
 #include "device.h"
 #include "config.h"
 #include "actions.h"
+#include "events.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,6 +120,15 @@ void http_server_handle_client(int server_fd, const char *webroot_path, const ch
         int jlen = snprintf(json, sizeof(json), "{\"running\":true,\"pid\":%d,\"port\":%d,\"keys_count\":%d}\n",
             getpid(), g_config.http_port, g_config.key_count);
         send_response(client_fd, 200, "OK", "application/json", json, jlen);
+        close(client_fd);
+        return;
+    }
+
+    // API: Live Key Event
+    if (strcmp(uri, "/api/events") == 0) {
+        char json[512];
+        event_to_json(json, sizeof(json));
+        send_response(client_fd, 200, "OK", "application/json", json, strlen(json));
         close(client_fd);
         return;
     }

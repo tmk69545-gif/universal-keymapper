@@ -16,6 +16,7 @@
 #include "actions.h"
 #include "device.h"
 #include "http_server.h"
+#include "events.h"
 
 #define DEFAULT_CONFIG_PATH "/data/adb/modules/essential_keymapper/keymapper.conf"
 #define DEFAULT_WEBROOT_PATH "/data/adb/modules/essential_keymapper/webroot"
@@ -197,12 +198,19 @@ static int check_combos(monitored_key_t *current) {
 
 static void handle_key_event(monitored_key_t *mk, int value) {
     uint64_t now = get_time_ms();
+    uint64_t duration = (value == 0 && mk->press_time_ms > 0) ? (now - mk->press_time_ms) : 0;
+
+    event_record(mk->keycode, mk->name, mk->cfg ? mk->cfg->label : mk->name, "hardware", value, duration, NULL);
 
     if (g_test_mode) {
         printf("\033[1;36m[KEY EVENT]\033[0m Code: %-3d (%s) | State: %s | Time: %llu ms\n",
             mk->keycode, mk->name,
             value == 1 ? "\033[32mDOWN\033[0m" : (value == 0 ? "\033[31mUP\033[0m" : "\033[33mREPEAT\033[0m"),
             (unsigned long long)now);
+        fflush(stdout);
+    } else if (g_config.log_level >= 1) {
+        printf("[KEY EVENT] %s (%d) | State: %s | Duration: %llu ms\n",
+            mk->name, mk->keycode, value == 1 ? "DOWN" : (value == 0 ? "UP" : "REPEAT"), (unsigned long long)duration);
         fflush(stdout);
     }
 
@@ -287,6 +295,22 @@ static void handle_timer_expiration(monitored_key_t *mk) {
 }
 
 static void sync_monitored_keys_with_config(int epoll_fd) {
+    // 1. Auto-discover all hardware keys present on this device
+    detected_key_t detected[MAX_DETECTED_KEYS];
+    int detected_count = device_detect_all_keys(detected, MAX_DETECTED_KEYS);
+    for (int d = 0; d < detected_count; d++) {
+        int code = detected[d].keycode;
+        key_config_t *kc = config_find_key(&g_config, code);
+        if (!kc) {
+            kc = config_find_or_add_key(&g_config, code);
+            if (kc) {
+                strncpy(kc->name, detected[d].name, sizeof(kc->name) - 1);
+                strncpy(kc->label, detected[d].label, sizeof(kc->label) - 1);
+            }
+        }
+    }
+
+    // 2. Ensure every configured & detected key has an active monitored entry with timerfd in epoll
     for (int i = 0; i < g_config.key_count; i++) {
         key_config_t *kc = &g_config.keys[i];
         monitored_key_t *mk = find_key_by_code(kc->keycode);
@@ -320,6 +344,8 @@ static const char *resolve_path(const char *primary, const char *fallback, const
 }
 
 int main(int argc, char *argv[]) {
+    int custom_config = 0;
+    int custom_webroot = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--test") == 0 || strcmp(argv[i], "-t") == 0) {
             g_test_mode = 1;
@@ -341,8 +367,10 @@ int main(int argc, char *argv[]) {
             }
         } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
             g_config_path = argv[++i];
+            custom_config = 1;
         } else if (strcmp(argv[i], "--webroot") == 0 && i + 1 < argc) {
             g_webroot_path = argv[++i];
+            custom_webroot = 1;
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             printf("Usage: keyactiond [OPTIONS]\n"
                    "  -t, --test                  Run in foreground test mode with live event logging\n"
@@ -359,8 +387,12 @@ int main(int argc, char *argv[]) {
     printf("[*] Starting Universal KeyMapper Daemon...\n");
     actions_init();
 
-    g_config_path = resolve_path(DEFAULT_CONFIG_PATH, FALLBACK_CONFIG_PATH, LOCAL_CONFIG_PATH);
-    g_webroot_path = resolve_path(DEFAULT_WEBROOT_PATH, DEFAULT_WEBROOT_PATH, LOCAL_WEBROOT_PATH);
+    if (!custom_config) {
+        g_config_path = resolve_path(DEFAULT_CONFIG_PATH, FALLBACK_CONFIG_PATH, LOCAL_CONFIG_PATH);
+    }
+    if (!custom_webroot) {
+        g_webroot_path = resolve_path(DEFAULT_WEBROOT_PATH, DEFAULT_WEBROOT_PATH, LOCAL_WEBROOT_PATH);
+    }
     g_log_path = resolve_path(DEFAULT_LOG_PATH, DEFAULT_LOG_PATH, LOCAL_LOG_PATH);
 
     printf("[*] Loading configuration from: %s\n", g_config_path);
@@ -445,9 +477,14 @@ int main(int argc, char *argv[]) {
                     monitored_key_t *mk = find_key_by_code(ev.code);
                     if (mk) {
                         handle_key_event(mk, ev.value);
-                    } else if (g_test_mode) {
-                        printf("\033[1;30m[UNMAPPED KEY]\033[0m Code: %-3d | State: %d\n", ev.code, ev.value);
-                        fflush(stdout);
+                    } else {
+                        event_record(ev.code, config_get_canonical_name(ev.code), config_get_canonical_label(ev.code), "hardware", ev.value, 0, "unmapped");
+                        if (g_test_mode || g_config.log_level >= 1) {
+                            printf("[KEY EVENT] %s (%d) | State: %s\n",
+                                config_get_canonical_name(ev.code), ev.code,
+                                ev.value == 1 ? "DOWN" : (ev.value == 0 ? "UP" : "REPEAT"));
+                            fflush(stdout);
+                        }
                     }
                 }
             }
