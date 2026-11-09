@@ -34,6 +34,9 @@ cp "$REPO_DIR/customize.sh" "$TMP_DIR/"
 cp "$REPO_DIR/service.sh" "$TMP_DIR/"
 cp "$REPO_DIR/uninstall.sh" "$TMP_DIR/"
 cp "$REPO_DIR/keymapper.conf" "$TMP_DIR/"
+if [ -f "$REPO_DIR/torch.jar" ]; then
+    cp "$REPO_DIR/torch.jar" "$TMP_DIR/"
+fi
 cp -r "$REPO_DIR/META-INF" "$TMP_DIR/"
 cp -r "$REPO_DIR/system" "$TMP_DIR/"
 cp -r "$REPO_DIR/vendor" "$TMP_DIR/"
@@ -42,6 +45,7 @@ cp -r "$REPO_DIR/webroot" "$TMP_DIR/"
 chmod 755 "$TMP_DIR/system/bin/"*
 chmod 755 "$TMP_DIR/service.sh" "$TMP_DIR/customize.sh" "$TMP_DIR/uninstall.sh" "$TMP_DIR/META-INF/com/google/android/update-binary"
 chmod 644 "$TMP_DIR/module.prop" "$TMP_DIR/keymapper.conf" "$TMP_DIR/META-INF/com/google/android/updater-script"
+[ -f "$TMP_DIR/torch.jar" ] && chmod 644 "$TMP_DIR/torch.jar"
 find "$TMP_DIR/webroot" -type f -exec chmod 644 {} +
 find "$TMP_DIR/system/usr/keylayout" -type f -exec chmod 644 {} + 2>/dev/null || true
 find "$TMP_DIR/vendor/usr/keylayout" -type f -exec chmod 644 {} + 2>/dev/null || true

@@ -34,7 +34,7 @@ fi
 
 # Config Generation / Preservation
 CONFIG_TARGET="/data/adb/modules/essential_keymapper/keymapper.conf"
-if [ -f "$CONFIG_TARGET" ]; then
+if [ -s "$CONFIG_TARGET" ]; then
     ui_print "- Preserving existing user key configuration..."
     cp -f "$CONFIG_TARGET" "$MODPATH/keymapper.conf"
 else
@@ -52,6 +52,9 @@ set_perm "$MODPATH/system/bin/keymapper" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 set_perm "$MODPATH/uninstall.sh" 0 0 0755
 set_perm "$MODPATH/keymapper.conf" 0 0 0644
+if [ -f "$MODPATH/torch.jar" ]; then
+    set_perm "$MODPATH/torch.jar" 0 0 0644
+fi
 
 if [ -d "$MODPATH/webroot" ]; then
     set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644

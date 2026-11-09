@@ -42,8 +42,19 @@ void actions_init(void) {
 }
 
 int actions_is_screen_on(void) {
-    // Query screen state quickly via dumpsys power
-    FILE *fp = popen("/system/bin/dumpsys power 2>/dev/null | grep -m1 'mWakefulness=Awake'", "r");
+    // 1. Ultra-fast direct sysfs check (non-blocking, <0.1ms)
+    FILE *fp = fopen("/sys/class/leds/lcd-backlight/brightness", "r");
+    if (fp) {
+        int val = 0;
+        if (fscanf(fp, "%d", &val) == 1) {
+            fclose(fp);
+            return (val > 0);
+        }
+        fclose(fp);
+    }
+
+    // 2. Fallback to dumpsys power
+    fp = popen("/system/bin/dumpsys power 2>/dev/null | grep -m1 'mWakefulness=Awake'", "r");
     if (!fp) return 1;
     char buf[128];
     char *res = fgets(buf, sizeof(buf), fp);
@@ -53,12 +64,28 @@ int actions_is_screen_on(void) {
 
 void actions_toggle_flashlight(void) {
     run_forked_cmd(
-        "if [ -f /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch ]; then "
+        // 1. Android CameraManager via persistent app_process helper (universal across all Android 10-17 devices)
+        "if [ -f /data/adb/modules/essential_keymapper/torch.jar ]; then "
+        "  PIDFILE=/data/adb/modules/essential_keymapper/.torch.pid; "
+        "  if [ -f \"$PIDFILE\" ]; then "
+        "    PID=$(cat \"$PIDFILE\" 2>/dev/null); "
+        "    if [ -n \"$PID\" ] && kill -0 \"$PID\" 2>/dev/null; then "
+        "      kill -9 \"$PID\" 2>/dev/null; "
+        "      rm -f \"$PIDFILE\"; "
+        "      exit 0; "
+        "    fi; "
+        "    rm -f \"$PIDFILE\"; "
+        "  fi; "
+        "  nohup app_process -Djava.class.path=/data/adb/modules/essential_keymapper/torch.jar /system/bin Torch 1 >/dev/null 2>&1 & "
+        "  echo $! > \"$PIDFILE\"; "
+        // 2. MediaTek MTK Torch sysfs
+        "elif [ -f /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch ]; then "
         "  if grep -q '0 0 0 1' /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch 2>/dev/null; then "
         "    echo '0 0 0 0' > /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch; "
         "  else "
         "    echo '0 0 0 1' > /sys/devices/virtual/flashlight_core/flashlight/flashlight_torch; "
         "  fi; "
+        // 3. Standard Linux sysfs leds
         "elif [ -f /sys/class/leds/flashlight/brightness ]; then "
         "  cur=$(cat /sys/class/leds/flashlight/brightness 2>/dev/null || echo 0); "
         "  [ \"$cur\" -eq 0 ] && echo 255 > /sys/class/leds/flashlight/brightness || echo 0 > /sys/class/leds/flashlight/brightness; "
