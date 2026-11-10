@@ -1,0 +1,128 @@
+name: Build Flashable Zip
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Universal KeyMapper
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r28b
+
+      - name: Compile native daemon (aarch64)
+        env:
+          NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd src
+          make clean
+          make -j$(nproc)
+          echo "--- Binary info ---"
+          file keyactiond
+          ls -lh keyactiond
+
+      - name: Package flashable zip
+        run: |
+          # Read version from module.prop
+          VERSION=$(grep '^version=' module.prop | cut -d= -f2)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          ZIP_NAME="Universal-KeyMapper-${VERSION}.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+          # Stage files
+          STAGE=$(mktemp -d)
+
+          cp module.prop "$STAGE/"
+          cp customize.sh "$STAGE/"
+          cp service.sh "$STAGE/"
+          cp uninstall.sh "$STAGE/"
+          cp keymapper.conf "$STAGE/"
+          [ -f torch.jar ] && cp torch.jar "$STAGE/"
+          cp -r META-INF "$STAGE/"
+          cp -r webroot "$STAGE/"
+          cp -r vendor "$STAGE/"
+
+          # System binaries
+          mkdir -p "$STAGE/system/bin"
+          cp src/keyactiond "$STAGE/system/bin/keyactiond"
+          cp keymapper.sh "$STAGE/system/bin/keymapper"
+
+          # Key layouts
+          mkdir -p "$STAGE/system/usr/keylayout"
+          cp system/usr/keylayout/*.kl "$STAGE/system/usr/keylayout/" 2>/dev/null || true
+
+          # Permissions
+          chmod 755 "$STAGE/system/bin/"*
+          chmod 755 "$STAGE/service.sh" "$STAGE/customize.sh" "$STAGE/uninstall.sh"
+          chmod 755 "$STAGE/META-INF/com/google/android/update-binary"
+          chmod 644 "$STAGE/module.prop" "$STAGE/keymapper.conf"
+          chmod 644 "$STAGE/META-INF/com/google/android/updater-script"
+          [ -f "$STAGE/torch.jar" ] && chmod 644 "$STAGE/torch.jar"
+          find "$STAGE/webroot" -type f -exec chmod 644 {} +
+          find "$STAGE/system/usr/keylayout" -type f -exec chmod 644 {} + 2>/dev/null || true
+          find "$STAGE/vendor" -type f -exec chmod 644 {} + 2>/dev/null || true
+
+          # Create zip
+          cd "$STAGE"
+          zip -r -q "$GITHUB_WORKSPACE/$ZIP_NAME" .
+          cd "$GITHUB_WORKSPACE"
+          ls -lh "$ZIP_NAME"
+          echo "ZIP_PATH=$GITHUB_WORKSPACE/$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload zip as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_PATH }}
+          retention-days: 90
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "ZIP_NAME=Universal-KeyMapper-${VERSION}.zip" >> $GITHUB_ENV
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Universal KeyMapper ${{ env.VERSION }}
+          body: |
+            ## Universal KeyMapper ${{ env.VERSION }}
+
+            Flash via KernelSU / Magisk / APatch module manager.
+
+            **Changes in this release:**
+            - See [commit log](https://github.com/${{ github.repository }}/commits/${{ env.VERSION }})
+          files: ${{ env.ZIP_NAME }}
+          draft: false
+          prerelease: false
