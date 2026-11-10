@@ -1,7 +1,7 @@
 id=essential_keymapper
 name=Universal KeyMapper (Any Device & AOSP)
-version=v2.0.3
-versionCode=2030
+version=v2.0.4
+versionCode=2040
 author=ezzydev
 description=Universal hardware key remapper for ALL Android devices. Auto-detects all device buttons, with single/double/triple/hold/combos/screen-off actions, full WebView manager, and live log viewer.
 web=true

@@ -10,8 +10,8 @@ done
 # Extra settling delay
 sleep 1
 
-DAEMON="/system/bin/keyactiond"
-[ ! -x "$DAEMON" ] && DAEMON="$MODDIR/system/bin/keyactiond"
+DAEMON="$MODDIR/system/bin/keyactiond"
+[ ! -x "$DAEMON" ] && DAEMON="/system/bin/keyactiond"
 
 CONFIG="$MODDIR/keymapper.conf"
 WEBROOT="$MODDIR/webroot"

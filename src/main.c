@@ -482,6 +482,10 @@ int main(int argc, char *argv[]) {
             int bytes;
             while ((bytes = read(fd, &ev, sizeof(ev))) == sizeof(ev)) {
                 if (ev.type == EV_KEY) {
+                    // Filter out touchscreen taps and pointer tools (e.g. BTN_TOUCH 330, BTN_TOOL_FINGER)
+                    if (ev.code >= 0x110 && ev.code <= 0x14f) {
+                        continue;
+                    }
                     monitored_key_t *mk = find_key_by_code(ev.code);
                     if (mk) {
                         handle_key_event(mk, ev.value);

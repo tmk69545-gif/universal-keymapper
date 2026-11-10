@@ -16,19 +16,17 @@ static void run_forked_cmd(const char *cmd) {
     pid_t pid = fork();
     if (pid == 0) {
         // Child process
-        // Redirect stdout/stderr to keyactiond.log so execution errors are captured
-        int log_fd = open("/data/adb/modules/essential_keymapper/keyactiond.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
-        if (log_fd >= 0) {
-            dup2(log_fd, STDOUT_FILENO);
-            dup2(log_fd, STDERR_FILENO);
-            close(log_fd);
-        } else {
-            int devnull = open("/dev/null", O_WRONLY);
-            if (devnull >= 0) {
-                dup2(devnull, STDOUT_FILENO);
-                dup2(devnull, STDERR_FILENO);
-                close(devnull);
-            }
+        // In Android, passing file descriptors that point to /data/adb/ or private root files
+        // across Binder (via cmd/input/am/content/pm) causes system_server to reject the
+        // transaction with: "cmd: Failure calling service <name>: Failed transaction (2147483646)"
+        // because system_server lacks SELinux permission to access /data/adb/*.
+        // Cleanly redirect stdin, stdout, and stderr to /dev/null so system commands succeed.
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            dup2(devnull, STDIN_FILENO);
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
         }
         execl("/system/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
@@ -100,33 +98,34 @@ void actions_toggle_flashlight(void) {
 
 void actions_screenshot(void) {
     run_forked_cmd(
-        // 1. Android 14+ KEYCODE_SCREENSHOT (keyevent 318) - triggers native SystemUI screenshot UI, flash, sound & floating editor
-        "input keyevent 318 2>/dev/null; "
-        "sleep 1.2; "
-        // 2. Check if a screenshot file was created within the last minute
-        "RECENT=$(find /sdcard/Pictures/Screenshots /sdcard/DCIM/Screenshots /data/media/0/Pictures/Screenshots -type f -mmin -1 2>/dev/null | head -n1); "
-        "if [ -z \"$RECENT\" ]; then "
-        // Fallback 1: Legacy SysRq keyevent 120
-        "  input keyevent 120 2>/dev/null; "
-        "  sleep 1.0; "
-        "  RECENT=$(find /sdcard/Pictures/Screenshots /sdcard/DCIM/Screenshots /data/media/0/Pictures/Screenshots -type f -mmin -1 2>/dev/null | head -n1); "
+        "export PATH=/system/bin:/system/xbin:/vendor/bin:$PATH; "
+        // 1. Trigger native screenshot instantly based on Android version
+        // Android 14+ / Nothing OS / Voltage OS uses KEYCODE_SCREENSHOT (keyevent 318)
+        // Older Android / AOSP uses KEYCODE_SYSRQ (keyevent 120)
+        "SDK=$(getprop ro.build.version.sdk 2>/dev/null || echo 0); "
+        "if [ \"$SDK\" -ge 34 ]; then "
+        "  input keyevent 318 2>/dev/null || input keyevent 120 2>/dev/null; "
+        "else "
+        "  input keyevent 120 2>/dev/null || input keyevent 318 2>/dev/null; "
         "fi; "
-        "if [ -z \"$RECENT\" ]; then "
-        // Fallback 2: Direct screencap binary
-        "  DIR=\"/sdcard/Pictures/Screenshots\"; "
-        "  [ ! -d \"$DIR\" ] && mkdir -p \"$DIR\" 2>/dev/null; "
-        "  [ ! -d \"$DIR\" ] && DIR=\"/data/media/0/Pictures/Screenshots\" && mkdir -p \"$DIR\" 2>/dev/null; "
-        "  FILE=\"$DIR/Screenshot_$(date +%Y%m%d_%H%M%S).png\"; "
-        "  /system/bin/screencap -p \"$FILE\" 2>/dev/null || screencap -p \"$FILE\" 2>/dev/null; "
-        "  if [ -s \"$FILE\" ]; then "
-        "    chmod 664 \"$FILE\" 2>/dev/null; "
-        "    chown media_rw:media_rw \"$FILE\" 2>/dev/null; "
-        "    am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$FILE\" >/dev/null 2>&1; "
-        "    content call --method scan_volume --uri content://media --arg external_primary >/dev/null 2>&1; "
-        "    cmd vibrator_manager synced oneshot 80 2>/dev/null || (echo 70 > /sys/class/leds/vibrator/duration 2>/dev/null && echo 1 > /sys/class/leds/vibrator/activate 2>/dev/null); "
-        "    cmd notification post -S bigtext -t \"Screenshot Captured\" \"keymapper\" \"Saved to Pictures/Screenshots\" >/dev/null 2>&1; "
-        "  fi; "
-        "fi"
+        // 2. Background watchdog fallback: only takes direct screencap if no screenshot file was saved
+        "( sleep 1.5; "
+        "  RECENT=$(find /sdcard/Pictures/Screenshots /sdcard/DCIM/Screenshots /data/media/0/Pictures/Screenshots -type f -mmin -1 2>/dev/null | head -n1); "
+        "  if [ -z \"$RECENT\" ]; then "
+        "    DIR=\"/sdcard/Pictures/Screenshots\"; "
+        "    [ ! -d \"$DIR\" ] && mkdir -p \"$DIR\" 2>/dev/null; "
+        "    [ ! -d \"$DIR\" ] && DIR=\"/data/media/0/Pictures/Screenshots\" && mkdir -p \"$DIR\" 2>/dev/null; "
+        "    FILE=\"$DIR/Screenshot_$(date +%Y%m%d_%H%M%S).png\"; "
+        "    /system/bin/screencap -p \"$FILE\" 2>/dev/null || screencap -p \"$FILE\" 2>/dev/null; "
+        "    if [ -s \"$FILE\" ]; then "
+        "      chmod 664 \"$FILE\" 2>/dev/null; "
+        "      chown media_rw:media_rw \"$FILE\" 2>/dev/null; "
+        "      content call --method scan_volume --uri content://media --arg external_primary >/dev/null 2>&1; "
+        "      cmd vibrator_manager synced oneshot 80 2>/dev/null || (echo 70 > /sys/class/leds/vibrator/duration 2>/dev/null && echo 1 > /sys/class/leds/vibrator/activate 2>/dev/null); "
+        "      cmd notification post -S bigtext -t \"Screenshot Captured\" \"keymapper\" \"Saved to Pictures/Screenshots\" >/dev/null 2>&1; "
+        "    fi; "
+        "  fi "
+        ") &"
     );
 }
 
