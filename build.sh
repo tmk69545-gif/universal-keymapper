@@ -2,7 +2,9 @@
 set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUTPUT_NAME="Universal-KeyMapper-v2.0.0.zip"
+VERSION=$(grep '^version=' "$REPO_DIR/module.prop" | cut -d= -f2)
+[ -z "$VERSION" ] && VERSION="v2.0.2"
+OUTPUT_NAME="Universal-KeyMapper-${VERSION}.zip"
 OUTPUT_DIR="${1:-$REPO_DIR/dist}"
 
 if [[ "$OUTPUT_DIR" != /* ]]; then

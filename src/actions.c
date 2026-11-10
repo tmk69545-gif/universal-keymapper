@@ -100,25 +100,32 @@ void actions_toggle_flashlight(void) {
 
 void actions_screenshot(void) {
     run_forked_cmd(
-        "export PATH=/system/bin:/system/xbin:/vendor/bin:$PATH; "
-        "DIR=\"/sdcard/Pictures/Screenshots\"; "
-        "if [ ! -d \"$DIR\" ]; then mkdir -p \"$DIR\" 2>/dev/null; fi; "
-        "if [ ! -d \"$DIR\" ]; then DIR=\"/data/media/0/Pictures/Screenshots\"; mkdir -p \"$DIR\" 2>/dev/null; fi; "
-        "if [ ! -d \"$DIR\" ]; then DIR=\"/sdcard/DCIM/Screenshots\"; mkdir -p \"$DIR\" 2>/dev/null; fi; "
-        "FILE=\"$DIR/Screenshot_$(date +%Y%m%d_%H%M%S).png\"; "
-        "/system/bin/screencap -p \"$FILE\" 2>/dev/null || screencap -p \"$FILE\" 2>/dev/null; "
-        "if [ -s \"$FILE\" ]; then "
-        "  chmod 664 \"$FILE\" 2>/dev/null; "
-        "  chown media_rw:media_rw \"$FILE\" 2>/dev/null; "
-        "  am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$FILE\" >/dev/null 2>&1; "
-        "  content call --method scan_volume --uri content://media --arg external_primary >/dev/null 2>&1; "
-        "  cmd vibrator vibrate 70 2>/dev/null || (echo 70 > /sys/class/leds/vibrator/duration 2>/dev/null && echo 1 > /sys/class/leds/vibrator/activate 2>/dev/null); "
-        "  for snd in /system/media/audio/ui/camera_click.ogg /system/media/audio/ui/Screenshot.ogg /system/product/media/audio/ui/camera_click.ogg; do "
-        "    if [ -f \"$snd\" ]; then (stagefright -a \"$snd\" >/dev/null 2>&1 || cmd media_session dispatch play >/dev/null 2>&1) & break; fi; "
-        "  done; "
-        "  am broadcast -a com.android.server.front.TOAST --es msg \"Screenshot saved\" >/dev/null 2>&1; "
-        "else "
-        "  input keyevent 318 2>/dev/null || input keyevent 120 2>/dev/null; "
+        // 1. Android 14+ KEYCODE_SCREENSHOT (keyevent 318) - triggers native SystemUI screenshot UI, flash, sound & floating editor
+        "input keyevent 318 2>/dev/null; "
+        "sleep 1.2; "
+        // 2. Check if a screenshot file was created within the last minute
+        "RECENT=$(find /sdcard/Pictures/Screenshots /sdcard/DCIM/Screenshots /data/media/0/Pictures/Screenshots -type f -mmin -1 2>/dev/null | head -n1); "
+        "if [ -z \"$RECENT\" ]; then "
+        // Fallback 1: Legacy SysRq keyevent 120
+        "  input keyevent 120 2>/dev/null; "
+        "  sleep 1.0; "
+        "  RECENT=$(find /sdcard/Pictures/Screenshots /sdcard/DCIM/Screenshots /data/media/0/Pictures/Screenshots -type f -mmin -1 2>/dev/null | head -n1); "
+        "fi; "
+        "if [ -z \"$RECENT\" ]; then "
+        // Fallback 2: Direct screencap binary
+        "  DIR=\"/sdcard/Pictures/Screenshots\"; "
+        "  [ ! -d \"$DIR\" ] && mkdir -p \"$DIR\" 2>/dev/null; "
+        "  [ ! -d \"$DIR\" ] && DIR=\"/data/media/0/Pictures/Screenshots\" && mkdir -p \"$DIR\" 2>/dev/null; "
+        "  FILE=\"$DIR/Screenshot_$(date +%Y%m%d_%H%M%S).png\"; "
+        "  /system/bin/screencap -p \"$FILE\" 2>/dev/null || screencap -p \"$FILE\" 2>/dev/null; "
+        "  if [ -s \"$FILE\" ]; then "
+        "    chmod 664 \"$FILE\" 2>/dev/null; "
+        "    chown media_rw:media_rw \"$FILE\" 2>/dev/null; "
+        "    am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$FILE\" >/dev/null 2>&1; "
+        "    content call --method scan_volume --uri content://media --arg external_primary >/dev/null 2>&1; "
+        "    cmd vibrator_manager synced oneshot 80 2>/dev/null || (echo 70 > /sys/class/leds/vibrator/duration 2>/dev/null && echo 1 > /sys/class/leds/vibrator/activate 2>/dev/null); "
+        "    cmd notification post -S bigtext -t \"Screenshot Captured\" \"keymapper\" \"Saved to Pictures/Screenshots\" >/dev/null 2>&1; "
+        "  fi; "
         "fi"
     );
 }
