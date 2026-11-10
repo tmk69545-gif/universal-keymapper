@@ -745,6 +745,19 @@
       }
     }
 
+    function normalizeSectionName(section) {
+      const s = section.trim().toLowerCase();
+      if (s === 'key_essential') return 'key_250';
+      if (s === 'key_volume_down' || s === 'key_voldown') return 'key_114';
+      if (s === 'key_volume_up' || s === 'key_volup') return 'key_115';
+      if (s === 'key_power') return 'key_116';
+      if (s === 'key_camera') return 'key_212';
+      if (s === 'key_assistant') return 'key_583';
+      if (s === 'key_bixby') return 'key_703';
+      if (s === 'key_mute') return 'key_113';
+      return section.trim();
+    }
+
     function parseConfigIni(text) {
       const map = {};
       let currentSection = 'global';
@@ -753,7 +766,7 @@
         line = line.trim();
         if (!line || line.startsWith('#') || line.startsWith(';')) continue;
         if (line.startsWith('[') && line.endsWith(']')) {
-          currentSection = line.slice(1, -1).trim();
+          currentSection = normalizeSectionName(line.slice(1, -1));
           if (!map[currentSection]) map[currentSection] = {};
           continue;
         }
@@ -989,6 +1002,12 @@
       ini.combos.essential_and_voldown = document.getElementById('combo_essential_voldown').value;
       ini.combos.essential_and_volup = document.getElementById('combo_essential_volup').value;
       ini.combos.power_and_voldown = document.getElementById('combo_power_voldown').value;
+
+      // Clean up any legacy alias section keys so only canonical key_<keycode> sections are saved
+      const aliasKeys = ['key_essential', 'key_volume_down', 'key_voldown', 'key_volume_up', 'key_volup', 'key_power', 'key_camera', 'key_assistant', 'key_bixby', 'key_mute'];
+      for (const a of aliasKeys) {
+        delete ini[a];
+      }
 
       let out = "# Universal KeyMapper Configuration\n\n[global]\n";
       for (let k in ini.global) out += `${k} = ${ini.global[k]}\n`;

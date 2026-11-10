@@ -100,22 +100,26 @@ void actions_toggle_flashlight(void) {
 
 void actions_screenshot(void) {
     run_forked_cmd(
-        // Cascading screenshot methods — first success wins
-        // 1. cmd statusbar screenshot (Android 12+ / Nothing phones — most reliable)
-        "if cmd statusbar screenshot 2>/dev/null; then exit 0; fi; "
-        // 2. svc screenshot (Android 14+)
-        "if svc screenshot 2>/dev/null; then exit 0; fi; "
-        // 3. KEYCODE_SCREENSHOT (keyevent 220)
-        "if input keyevent 220 2>/dev/null; then exit 0; fi; "
-        // 4. KEYCODE_SYSRQ (keyevent 120) — legacy method
-        "if input keyevent 120 2>/dev/null; then exit 0; fi; "
-        // 5. Final fallback: screencap to PNG file + media scan so it shows in gallery
-        "SPATH=/sdcard/Pictures/Screenshots; "
-        "mkdir -p \"$SPATH\"; "
-        "FNAME=\"$SPATH/Screenshot_$(date +%Y%m%d_%H%M%S).png\"; "
-        "screencap -p \"$FNAME\" 2>/dev/null && "
-        "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE "
-        "-d \"file://$FNAME\" >/dev/null 2>&1"
+        "export PATH=/system/bin:/system/xbin:/vendor/bin:$PATH; "
+        "DIR=\"/sdcard/Pictures/Screenshots\"; "
+        "if [ ! -d \"$DIR\" ]; then mkdir -p \"$DIR\" 2>/dev/null; fi; "
+        "if [ ! -d \"$DIR\" ]; then DIR=\"/data/media/0/Pictures/Screenshots\"; mkdir -p \"$DIR\" 2>/dev/null; fi; "
+        "if [ ! -d \"$DIR\" ]; then DIR=\"/sdcard/DCIM/Screenshots\"; mkdir -p \"$DIR\" 2>/dev/null; fi; "
+        "FILE=\"$DIR/Screenshot_$(date +%Y%m%d_%H%M%S).png\"; "
+        "/system/bin/screencap -p \"$FILE\" 2>/dev/null || screencap -p \"$FILE\" 2>/dev/null; "
+        "if [ -s \"$FILE\" ]; then "
+        "  chmod 664 \"$FILE\" 2>/dev/null; "
+        "  chown media_rw:media_rw \"$FILE\" 2>/dev/null; "
+        "  am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://$FILE\" >/dev/null 2>&1; "
+        "  content call --method scan_volume --uri content://media --arg external_primary >/dev/null 2>&1; "
+        "  cmd vibrator vibrate 70 2>/dev/null || (echo 70 > /sys/class/leds/vibrator/duration 2>/dev/null && echo 1 > /sys/class/leds/vibrator/activate 2>/dev/null); "
+        "  for snd in /system/media/audio/ui/camera_click.ogg /system/media/audio/ui/Screenshot.ogg /system/product/media/audio/ui/camera_click.ogg; do "
+        "    if [ -f \"$snd\" ]; then (stagefright -a \"$snd\" >/dev/null 2>&1 || cmd media_session dispatch play >/dev/null 2>&1) & break; fi; "
+        "  done; "
+        "  am broadcast -a com.android.server.front.TOAST --es msg \"Screenshot saved\" >/dev/null 2>&1; "
+        "else "
+        "  input keyevent 318 2>/dev/null || input keyevent 120 2>/dev/null; "
+        "fi"
     );
 }
 

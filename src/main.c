@@ -255,7 +255,15 @@ static void handle_key_event(monitored_key_t *mk, int value) {
         mk->click_count++;
 
         if (mk->click_count == 1) {
-            set_key_timer(mk, g_config.double_click_ms);
+            int has_double = mk->cfg && mk->cfg->double_press[0] && strcasecmp(mk->cfg->double_press, "none") != 0;
+            int has_triple = mk->cfg && mk->cfg->triple_press[0] && strcasecmp(mk->cfg->triple_press, "none") != 0;
+            if (!has_double && !has_triple) {
+                // Zero latency: If neither double nor triple click is mapped, trigger single press immediately!
+                mk->click_count = 0;
+                trigger_gesture_action(mk, "Single Press", mk->cfg ? mk->cfg->single_press : "default", mk->cfg ? mk->cfg->screen_off_single : "default");
+            } else {
+                set_key_timer(mk, g_config.double_click_ms);
+            }
         } else if (mk->click_count == 2) {
             if (mk->cfg->triple_press[0] && strcasecmp(mk->cfg->triple_press, "none") != 0) {
                 set_key_timer(mk, g_config.triple_click_ms - g_config.double_click_ms);
