@@ -11,11 +11,24 @@ on:
 jobs:
   build:
     name: Build Universal KeyMapper
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Determine version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION=$(grep '^version=' module.prop | cut -d= -f2)
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "ZIP_NAME=Universal-KeyMapper-${VERSION}.zip" >> $GITHUB_ENV
+          echo "Building version: $VERSION"
 
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
@@ -36,13 +49,6 @@ jobs:
 
       - name: Package flashable zip
         run: |
-          # Read version from module.prop
-          VERSION=$(grep '^version=' module.prop | cut -d= -f2)
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          ZIP_NAME="Universal-KeyMapper-${VERSION}.zip"
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-
-          # Stage files
           STAGE=$(mktemp -d)
 
           cp module.prop "$STAGE/"
@@ -55,16 +61,13 @@ jobs:
           cp -r webroot "$STAGE/"
           cp -r vendor "$STAGE/"
 
-          # System binaries
           mkdir -p "$STAGE/system/bin"
           cp src/keyactiond "$STAGE/system/bin/keyactiond"
           cp keymapper.sh "$STAGE/system/bin/keymapper"
 
-          # Key layouts
           mkdir -p "$STAGE/system/usr/keylayout"
           cp system/usr/keylayout/*.kl "$STAGE/system/usr/keylayout/" 2>/dev/null || true
 
-          # Permissions
           chmod 755 "$STAGE/system/bin/"*
           chmod 755 "$STAGE/service.sh" "$STAGE/customize.sh" "$STAGE/uninstall.sh"
           chmod 755 "$STAGE/META-INF/com/google/android/update-binary"
@@ -75,44 +78,20 @@ jobs:
           find "$STAGE/system/usr/keylayout" -type f -exec chmod 644 {} + 2>/dev/null || true
           find "$STAGE/vendor" -type f -exec chmod 644 {} + 2>/dev/null || true
 
-          # Create zip
           cd "$STAGE"
-          zip -r -q "$GITHUB_WORKSPACE/$ZIP_NAME" .
+          zip -r -q "$GITHUB_WORKSPACE/${{ env.ZIP_NAME }}" .
           cd "$GITHUB_WORKSPACE"
-          ls -lh "$ZIP_NAME"
-          echo "ZIP_PATH=$GITHUB_WORKSPACE/$ZIP_NAME" >> $GITHUB_ENV
+          ls -lh "${{ env.ZIP_NAME }}"
 
       - name: Upload zip as build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_PATH }}
+          path: ${{ env.ZIP_NAME }}
           retention-days: 90
 
-  release:
-    name: Create GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Get version from tag
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "ZIP_NAME=Universal-KeyMapper-${VERSION}.zip" >> $GITHUB_ENV
-
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.ZIP_NAME }}
-
-      - name: Create release
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: Universal KeyMapper ${{ env.VERSION }}
